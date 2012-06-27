@@ -77,6 +77,21 @@ public class SyncWithDropbox extends AsyncTask<Void, Integer, Boolean> {
 
     }
     
+    protected void processDirectory(String path, HashMap<String, Entry> remoteFiles) throws DropboxException {
+    	Entry dir = mApi.metadata(path, 0, null, true, null);
+    	for (Entry file : dir.contents) {
+    		if (file.isDeleted) {
+    			continue;
+    		}
+    		if (file.isDir) {
+    			processDirectory(file.path, remoteFiles);
+    		} else {
+				//String fileName = file.fileName();
+				remoteFiles.put(file.path, file);
+    		}
+    	}
+    }
+    
 	@Override
 	protected Boolean doInBackground(Void... params) {
 		// update Dropbox based on local notes
@@ -93,6 +108,11 @@ public class SyncWithDropbox extends AsyncTask<Void, Integer, Boolean> {
 				if (file.isDeleted) {
 					continue;
 				}
+				if (file.isDir) {
+					// TODO: process directories
+					continue;
+				}
+				Log.d(TAG, "Found file " + file.path);
 				String fileName = file.fileName();
 				remoteFiles.put(fileName, file);
 			}

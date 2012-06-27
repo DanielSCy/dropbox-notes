@@ -42,4 +42,7 @@
     <string name="menu_signin">Link with Dropbox</string>
     <string name="menu_signout">Unlink from Dropbox</string>
     <string name="menu_sync">Synchronize</string>
+    <string name="generate_qr">Generate QR code</string>
+    <string name="choose_qr_app">Choose QR app</string>
+    <string name="menu_scan_qr">Scan QR code</string>
 </resources>

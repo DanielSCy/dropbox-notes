@@ -72,7 +72,7 @@ public final class NotePad {
          * 0-relative position of a note ID segment in the path part of a note ID URI
          */
         public static final int NOTE_ID_PATH_POSITION = 1;
-
+        
         /**
          * The content:// style URL for this table
          */
@@ -92,12 +92,46 @@ public final class NotePad {
         public static final Uri CONTENT_ID_URI_PATTERN
             = Uri.parse(SCHEME + AUTHORITY + PATH_NOTE_ID + "/#");
 
+        /**
+         * Path part for the Folders URI
+         */
+        private static final String PATH_FOLDERS = "/folders";
+
+        /**
+         * Path part for the Folder Name URI
+         */
+        private static final String PATH_FOLDER_NAME = "/folders/";
+
+        /**
+         * 0-relative position of a folder name segment in the path part of a folder name URI
+         */
+        public static final int FOLDER_NAME_PATH_POSITION = 1;
+        
+        /**
+         * The content:// style URL for folders view
+         */
+        public static final Uri FOLDERS_URI = Uri.parse(SCHEME + AUTHORITY + PATH_FOLDERS);
+        
+        /**
+         * The content URI base for a single folder. Callers must
+         * append a string folder name to this Uri to retrieve a folder
+         */
+        public static final Uri FOLDER_NAME_URI_BASE
+            = Uri.parse(SCHEME + AUTHORITY + PATH_FOLDER_NAME);
+
+        /**
+         * The content URI match pattern for a single note, specified by its ID. Use this to match
+         * incoming URIs or to construct an Intent.
+         */
+        public static final Uri FOLDER_NAME_URI_PATTERN
+            = Uri.parse(SCHEME + AUTHORITY + PATH_FOLDER_NAME + "/*");
+
         /*
          * MIME type definitions
          */
 
         /**
-         * The MIME type of {@link #CONTENT_URI} providing a directory of notes.
+         * The MIME type of {@link #CONTENT_URI} or {@link #FOLDER_NAME_URI_PATTERN} providing a directory of notes.
          */
         public static final String CONTENT_TYPE = "vnd.android.cursor.dir/vnd.daniel.stanciu.dropboxnotes";
 
@@ -108,6 +142,11 @@ public final class NotePad {
         public static final String CONTENT_ITEM_TYPE = "vnd.android.cursor.item/vnd.daniel.stanciu.dropboxnotes";
 
         /**
+         * The MIME type of a {@link #CONTENT_FOLDERS_TYPE} providing a list of folders.
+         */
+		public static final String CONTENT_FOLDERS_TYPE = "vnd.android.cursor.dir/vnd.daniel.stanciu.dropboxnotes.folders";
+
+		/**
          * The default sort order for this table
          */
         public static final String DEFAULT_SORT_ORDER = "modified DESC";
@@ -143,5 +182,7 @@ public final class NotePad {
         public static final String COLUMN_NAME_DELETED = "deleted";
 
 		public static final String COLUMN_NAME_FILE_NAME = "filename";
+
+		public static final String COLUMN_NAME_FOLDER = "folder";
     }
 }

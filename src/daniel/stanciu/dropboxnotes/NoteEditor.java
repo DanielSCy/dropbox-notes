@@ -31,6 +31,7 @@ import android.graphics.Paint;
 import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Bundle;
+import android.text.InputType;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.Menu;
@@ -52,7 +53,7 @@ import android.widget.EditText;
 public class NoteEditor extends Activity {
     // For logging and debugging purposes
     private static final String TAG = "NoteEditor";
-
+    
     /*
      * Creates a projection that returns the note ID and the note contents.
      */
@@ -71,12 +72,17 @@ public class NoteEditor extends Activity {
     private static final int STATE_EDIT = 0;
     private static final int STATE_INSERT = 1;
 
+	private static final int SCAN_QR_CODE = 1;
+
     // Global mutable variables
     private int mState;
     private Uri mUri;
     private Cursor mCursor;
     private EditText mText;
     private String mOriginalContent;
+    
+    private boolean returningFromScan = false;
+    private String mScanResult = null;
 
     /**
      * Defines a custom EditText View that draws lines between each line of text that is displayed.
@@ -129,6 +135,26 @@ public class NoteEditor extends Activity {
             // Finishes up by calling the parent method
             super.onDraw(canvas);
         }
+
+//		@Override
+//		public void createContextMenu(ContextMenu menu) {
+//			super.createContextMenu(menu);
+//			MenuItem item = menu.add(ContextMenu.NONE, SCAN_QR_MENU_ID, ContextMenu.NONE, R.string.menu_scan_qr);
+//		}
+//
+//		@Override
+//		public boolean onTextContextMenuItem(int id) {
+//			if (id == SCAN_QR_MENU_ID) {
+//				Toast.makeText(getContext(), "Scanning", Toast.LENGTH_LONG).show();
+//				return true;
+//			} else {
+//				Toast.makeText(getContext(), "Some other id", Toast.LENGTH_LONG).show();
+//				return super.onTextContextMenuItem(id);
+//			}
+//		}
+//        
+//		
+//        
     }
 
     /**
@@ -228,6 +254,7 @@ public class NoteEditor extends Activity {
 
         // Gets a handle to the EditText in the the layout.
         mText = (EditText) findViewById(R.id.note);
+        mText.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
 
         /*
          * If this Activity had stopped previously, its state was written the ORIGINAL_CONTENT
@@ -290,7 +317,15 @@ public class NoteEditor extends Activity {
             // the text cursor's position.
             int colNoteIndex = mCursor.getColumnIndex(NotePad.Notes.COLUMN_NAME_NOTE);
             String note = mCursor.getString(colNoteIndex);
-            mText.setTextKeepState(note);
+        	mText.setTextKeepState(note);
+            if (returningFromScan) {
+				int start = mText.getSelectionStart();
+				int end = mText.getSelectionEnd();
+				mText.getText().replace(Math.min(start, end), Math.max(start, end),
+				        mScanResult, 0, mScanResult.length());
+	            returningFromScan = false;
+	            mScanResult = null;
+            }
 
             // Stores the original note text, to allow the user to revert changes.
             if (mOriginalContent == null) {
@@ -447,12 +482,38 @@ public class NoteEditor extends Activity {
         case R.id.menu_revert:
             cancelNote();
             break;
+        case R.id.menu_scan_qr:
+        	scanQRCode();
+        	break;
         }
         return super.onOptionsItemSelected(item);
     }
 
 
-    /**
+    private void scanQRCode() {
+		// TODO Auto-generated method stub
+		Intent intent = new Intent("com.google.zxing.client.android.SCAN");
+		intent.addCategory(Intent.CATEGORY_DEFAULT);
+		intent.putExtra("SCAN_FORMATS", "QR_CODE");
+		startActivityForResult(Intent.createChooser(intent, getResources().getText(R.string.choose_qr_app)),
+				SCAN_QR_CODE);
+	}
+
+    
+	@Override
+	protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+		// TODO Auto-generated method stub
+		if (requestCode == SCAN_QR_CODE) {
+			if (resultCode == Activity.RESULT_OK) {
+				mScanResult = data.getStringExtra("SCAN_RESULT");
+				returningFromScan = true;
+				return;
+			}
+		}
+		super.onActivityResult(requestCode, resultCode, data);
+	}
+
+	/**
      * A helper method that replaces the note's data with the contents of the clipboard.
      */
     private final void performPaste() {
@@ -622,7 +683,6 @@ public class NoteEditor extends Activity {
         if (mCursor != null) {
             mCursor.close();
             mCursor = null;
-            // TODO: update as deleted
             ContentValues values = new ContentValues();
             values.put(NotePad.Notes.COLUMN_NAME_DELETED, 1);
             getContentResolver().update(mUri, values, null, null);

@@ -12,4 +12,8 @@
           android:icon="@drawable/ic_menu_delete"
           android:title="@string/menu_delete"
           android:showAsAction="ifRoom|withText" />
+    <item android:id="@+id/menu_scan_qr"
+          android:icon="@drawable/ic_menu_scan_qr"
+          android:title="@string/menu_scan_qr"
+          android:showAsAction="ifRoom|withText" />
 </menu>
