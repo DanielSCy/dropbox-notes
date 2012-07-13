@@ -47,7 +47,8 @@ public class SyncWithDropbox extends AsyncTask<Void, Integer, Boolean> {
     	NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE,
     	NotePad.Notes.COLUMN_NAME_NOTE,
     	NotePad.Notes.COLUMN_NAME_DELETED,
-    	NotePad.Notes.COLUMN_NAME_FILE_NAME
+    	NotePad.Notes.COLUMN_NAME_FILE_NAME,
+    	NotePad.Notes.COLUMN_NAME_FOLDER
     };
 
     public SyncWithDropbox(DropboxNotesActivity activity, DropboxAPI<?> api) {
@@ -86,36 +87,43 @@ public class SyncWithDropbox extends AsyncTask<Void, Integer, Boolean> {
     		if (file.isDir) {
     			processDirectory(file.path, remoteFiles);
     		} else {
+    			Log.d(TAG, "Found file " + file.path + ", parent folder " + file.parentPath());
 				//String fileName = file.fileName();
 				remoteFiles.put(file.path, file);
     		}
     	}
     }
     
+    private String buildFilePath(String fileName, String folderName) {
+    	if (folderName.endsWith("/")) {
+    		return folderName + fileName;
+    	} else {
+    		return folderName + "/" + fileName;
+    	}
+    }
+    
 	@Override
 	protected Boolean doInBackground(Void... params) {
-		// update Dropbox based on local notes
-		Cursor listCursor = mActivity.getContentResolver().query(
-				mActivity.getIntent().getData(), NOTE_DETAILS_PROJECTION, null, null, null);
-		
 		// get details for all notes on Dropbox
-		Entry dir = null;
 		HashMap<String, Entry> remoteFiles = new HashMap<String, Entry>();
+		ArrayList<Uri> pendingDelete = new ArrayList<Uri>();
 		
 		try {
-			dir = mApi.metadata("/", 0, null, true, null);
-			for (Entry file : dir.contents) {
-				if (file.isDeleted) {
-					continue;
-				}
-				if (file.isDir) {
-					// TODO: process directories
-					continue;
-				}
-				Log.d(TAG, "Found file " + file.path);
-				String fileName = file.fileName();
-				remoteFiles.put(fileName, file);
-			}
+			processDirectory("/", remoteFiles);
+//			Entry dir = null;
+//			dir = mApi.metadata("/", 0, null, true, null);
+//			for (Entry file : dir.contents) {
+//				if (file.isDeleted) {
+//					continue;
+//				}
+//				if (file.isDir) {
+//					// TODO: process directories
+//					continue;
+//				}
+//				Log.d(TAG, "Found file " + file.path);
+//				String fileName = file.fileName();
+//				remoteFiles.put(fileName, file);
+//			}
 		} catch (DropboxUnlinkedException e) {
             Log.e(TAG, mErrorMsg, e);
 			mErrorMsg = "Please link with dropbox.";
@@ -137,6 +145,10 @@ public class SyncWithDropbox extends AsyncTask<Void, Integer, Boolean> {
             return false;
 		}
 		
+		// update Dropbox based on local notes
+		Cursor listCursor = mActivity.getContentResolver().query(
+				mActivity.getIntent().getData(), NOTE_DETAILS_PROJECTION, null, null, null);
+		
 		if (listCursor == null) {
 			mErrorMsg = "Could not get cursor";
 			return false;
@@ -150,6 +162,7 @@ public class SyncWithDropbox extends AsyncTask<Void, Integer, Boolean> {
 		int noteIndex = listCursor.getColumnIndex(NotePad.Notes.COLUMN_NAME_NOTE);
 		int deletedIndex = listCursor.getColumnIndex(NotePad.Notes.COLUMN_NAME_DELETED);
 		int fileNameIndex = listCursor.getColumnIndex(NotePad.Notes.COLUMN_NAME_FILE_NAME);
+		int folderIndex = listCursor.getColumnIndex(NotePad.Notes.COLUMN_NAME_FOLDER);
 		
 //		int count = mListAdapter.getCount();
 		while (listCursor.moveToNext()) {
@@ -160,18 +173,22 @@ public class SyncWithDropbox extends AsyncTask<Void, Integer, Boolean> {
 			long noteId = listCursor.getLong(idIndex);
 			String title = listCursor.getString(titleIndex);
 			String fileName = listCursor.getString(fileNameIndex);
+			String folder = listCursor.getString(folderIndex);
+			String noteContent = listCursor.getString(noteIndex);
+			long noteModTime = listCursor.getLong(modDateIndex);
+			int noteDeleted = listCursor.getInt(deletedIndex);
+
+			String filePath = null;
 			if (fileName != null) {
 				if (fileName.trim().isEmpty()) {
 					fileName = null;
 				} else {
-					localNotes.add(fileName);
+					filePath = buildFilePath(fileName, folder);
+					localNotes.add(filePath);
 				}
 			}
 			//String title = mListAdapter.getItem(i).toString();
 			Uri uri = ContentUris.withAppendedId(mActivity.getIntent().getData(), noteId);
-			String noteContent = listCursor.getString(noteIndex);
-			long noteModTime = listCursor.getLong(modDateIndex);
-			int noteDeleted = listCursor.getInt(deletedIndex);
 			long dropboxNoteModTime;
 			try {
 				if (DropboxNotesActivity.IS_DEBUGGING) {
@@ -179,13 +196,14 @@ public class SyncWithDropbox extends AsyncTask<Void, Integer, Boolean> {
 				}
 				if (noteDeleted == 1) {
 					if (fileName != null) {
-						deleteDropboxNote(uri, fileName);
+						deleteDropboxNote(uri, filePath);
 					}
-					mActivity.getContentResolver().delete(uri, null, null);
+					pendingDelete.add(uri);
+					//mActivity.getContentResolver().delete(uri, null, null);
 					continue;
 				}
 				if (fileName != null) {
-					Entry file = remoteFiles.get(fileName);
+					Entry file = remoteFiles.get(filePath);
 					if (file != null) {
 						dropboxNoteModTime = getFileModDate(file);
 						if (dropboxNoteModTime > noteModTime) {
@@ -199,10 +217,11 @@ public class SyncWithDropbox extends AsyncTask<Void, Integer, Boolean> {
 					} else {
 						// TODO: the remote file was deleted, delete local note
 						// for now, only show a Toast for it to make sure there are no bugs
-						showToast("Cannot find file " + fileName + ". Please check");
+						// TODO: make it less stealth
+						Log.w(TAG, "Cannot find file " + filePath + ". Please check");
 					}
 				} else {
-					insertDropboxNote(uri, noteId, title, noteContent, remoteFiles);
+					insertDropboxNote(uri, noteId, title, noteContent, remoteFiles, folder);
 				}
 //				dropboxNoteModTime = getFileModDate(noteId);
 //				if (dropboxNoteModTime > noteModTime) {
@@ -224,7 +243,7 @@ public class SyncWithDropbox extends AsyncTask<Void, Integer, Boolean> {
 				if (ex.error == DropboxServerException._404_NOT_FOUND) {
 					try {
 						if (noteDeleted == 0) {
-							insertDropboxNote(uri, noteId, title, noteContent, remoteFiles);
+							insertDropboxNote(uri, noteId, title, noteContent, remoteFiles, folder);
 						} else {
 							mActivity.getContentResolver().delete(uri, null, null);
 						}
@@ -284,114 +303,22 @@ public class SyncWithDropbox extends AsyncTask<Void, Integer, Boolean> {
 		}
 		listCursor.close();
 		
+		for(Uri uri : pendingDelete) {
+			mActivity.getContentResolver().delete(uri, null, null);
+		}
+		
 		if (!status) {
 			return false;
 		}
-//		for (int i = 0; i < count; i++) {
-//			if (mCanceled) {
-//				return false;
-//			}
-//			long noteId = mListAdapter.getItemId(i);
-//			Cursor listCursor = mListAdapter.getCursor();
-//			String title = listCursor.getString(listCursor.getColumnIndex(NotePad.Notes.COLUMN_NAME_TITLE));
-//			localNotes.add(getFileNameForNoteId(noteId));
-//			//String title = mListAdapter.getItem(i).toString();
-//			Uri uri = ContentUris.withAppendedId(mActivity.getIntent().getData(), noteId);
-//			Cursor cursor;// = managedQuery(uri, NoteEditor.PROJECTION, null, null, null);
-//			cursor = mActivity.getContentResolver().query(uri, NOTE_DETAILS_PROJECTION, null, null, null);
-//			if (cursor != null && cursor.moveToFirst()) {
-//				String noteContent = cursor.getString(noteIndex);
-//				long noteModTime = cursor.getLong(modDateIndex);
-//				int noteDeleted = cursor.getInt(deletedIndex);
-//				cursor.close();
-//				long dropboxNoteModTime;
-//				try {
-//					if (DropboxNotesActivity.IS_DEBUGGING) {
-//						continue;
-//					}
-//					if (noteDeleted == 1) {
-//						deleteDropboxNote(uri, noteId);
-//						mActivity.getContentResolver().delete(uri, null, null);
-//						continue;
-//					}
-//					dropboxNoteModTime = getFileModDate(noteId);
-//					if (dropboxNoteModTime > noteModTime) {
-//						updateLocalNote(uri, noteId, dropboxNoteModTime);
-//					} else if (dropboxNoteModTime < noteModTime) {
-//						insertDropboxNote(uri, noteId, title, noteContent);
-//					} else {
-//						// note unchanged, process next note
-//						continue;
-//					}
-//		        } catch (DropboxUnlinkedException e) {
-//		            // The AuthSession wasn't properly authenticated or user unlinked.
-//		            Log.e(TAG, mErrorMsg, e);
-//		        	mErrorMsg = "Please link with dropbox.";
-//		        	return false;
-//				} catch (DropboxServerException ex) {
-//		            Log.e(TAG, mErrorMsg, ex);
-//					if (ex.error == DropboxServerException._404_NOT_FOUND) {
-//						try {
-//							if (noteDeleted == 0) {
-//								insertDropboxNote(uri, noteId, title, noteContent);
-//							} else {
-//								mActivity.getContentResolver().delete(uri, null, null);
-//							}
-//						} catch (DropboxUnlinkedException e) {
-//				            Log.e(TAG, mErrorMsg, e);
-//							mErrorMsg = "Please link with dropbox.";
-//							return false;
-//				        } catch (DropboxIOException e) {
-//				            Log.e(TAG, mErrorMsg, e);
-//				            // Happens all the time, probably want to retry automatically.
-//				            mErrorMsg = "Network error.  Try again.";
-//				            return false;
-//				        } catch (DropboxParseException e) {
-//				            // Probably due to Dropbox server restarting, should retry
-//				            Log.e(TAG, mErrorMsg, e);
-//				            mErrorMsg = "Dropbox error.  Try again.";
-//				            return false;
-//				        } catch (DropboxException e) {
-//				            // Unknown error
-//				            Log.e(TAG, mErrorMsg, e);
-//				            mErrorMsg = "Unknown error.  Try again.";
-//				            return false;
-//						}
-//					} else {
-//			            mErrorMsg = ex.body.userError;
-//			            if (mErrorMsg == null) {
-//			                mErrorMsg = ex.body.error;
-//			            }
-//			            return false;
-//					}
-//		        } catch (DropboxIOException e) {
-//		            // Happens all the time, probably want to retry automatically.
-//		            Log.e(TAG, mErrorMsg, e);
-//		            mErrorMsg = "Network error.  Try again.";
-//		            return false;
-//		        } catch (DropboxParseException e) {
-//		            // Probably due to Dropbox server restarting, should retry
-//		            Log.e(TAG, mErrorMsg, e);
-//		            mErrorMsg = "Dropbox error.  Try again.";
-//		            return false;
-//		        } catch (DropboxException e) {
-//		            // Unknown error
-//		            Log.e(TAG, mErrorMsg, e);
-//		            mErrorMsg = "Unknown error.  Try again.";
-//		            return false;
-//		        }
-//			}
-//			publishProgress(new Long(i));
-//		}
 		
 		// download extra notes from Dropbox
 		try {
-			for (Entry file : dir.contents) {
+			for (Entry file : remoteFiles.values()) {
 				if (file.isDeleted) {
 					continue;
 				}
-				String fileName = file.fileName();
-				if (localNotes.contains(fileName)) {
+				String filePath = file.path;
+				if (localNotes.contains(filePath)) {
 					continue;
 				}
 				createLocalNote(file);
@@ -420,23 +347,16 @@ public class SyncWithDropbox extends AsyncTask<Void, Integer, Boolean> {
 		return true;
 	}
 
-	private void deleteDropboxNote(Uri uri, String fileName) throws DropboxException {
+	private void deleteDropboxNote(Uri uri, String filePath) throws DropboxException {
 		//String notePath = getPathForNoteId(noteId);
-		mApi.delete("/" + fileName);
+		mApi.delete(filePath);
 	}
 
 	private void createLocalNote(Entry file) throws DropboxException {
 		Uri uri = mActivity.getContentResolver().insert(mActivity.getIntent().getData(), null);
-//		long noteId = Long.parseLong(uri.getPathSegments().get(NotePad.Notes.NOTE_ID_PATH_POSITION));
 		updateLocalNote(uri, file, RESTUtility.parseDate(file.modified).getTime());
-		//mApi.move(file.path, getPathForNoteId(noteId));
 	}
 	
-//	private void updateLocalNote(Uri uri, long noteId, long dropboxNoteModTime) throws DropboxException {
-//		String notePath = getPathForNoteId(noteId);
-//		updateLocalNote(uri, notePath, dropboxNoteModTime);
-//	}
-
 	private void updateLocalNote(Uri uri, Entry file, long dropboxNoteModTime) throws DropboxException {
 		DropboxInputStream is = mApi.getFileStream(file.path, null);
 		BufferedReader br = new BufferedReader(new InputStreamReader(is));
@@ -454,6 +374,7 @@ public class SyncWithDropbox extends AsyncTask<Void, Integer, Boolean> {
 			values.put(NotePad.Notes.COLUMN_NAME_TITLE, title);
 			values.put(NotePad.Notes.COLUMN_NAME_NOTE, content.toString());
 			values.put(NotePad.Notes.COLUMN_NAME_FILE_NAME, file.fileName());
+			values.put(NotePad.Notes.COLUMN_NAME_FOLDER, file.parentPath());
 			mActivity.getContentResolver().update(uri, values, null, null);
 		} catch (IOException e) {
 			Log.e(TAG, "Download error", e);
@@ -469,34 +390,40 @@ public class SyncWithDropbox extends AsyncTask<Void, Integer, Boolean> {
 		return "Note" + noteId + ".txt";
 	}
 	
-//	private String getPathForNoteId(long noteId) {
-//		return "/" + getFileNameForNoteId(noteId);
-//	}
-//	
 	private void insertDropboxNote(Uri noteUri, long noteId, String title,
-			String noteContent, HashMap<String, Entry> remoteFiles) throws DropboxException {
+			String noteContent, HashMap<String, Entry> remoteFiles, String folder) throws DropboxException {
 		if (DropboxNotesActivity.IS_DEBUGGING) {
 			return;
 		}
+		if (!folder.startsWith("/")) {
+			folder = "/" + folder;
+		}
+		if (!folder.endsWith("/")) {
+			folder += "/";
+		}
         String fileName;
         do {
-        	fileName = getFileNameForNoteId(noteId);
+        	fileName = folder + getFileNameForNoteId(noteId);
         	noteId++;
         } while (remoteFiles.containsKey(fileName));
-        insertDropboxNote(noteUri, "/" + fileName, title, noteContent);
+        insertDropboxNote(noteUri, fileName, title, noteContent);
 	}
 	
 	private void insertDropboxNote(Uri noteUri, String path, String title, String noteContent) throws DropboxException {
 		String dropboxContent = title + "\n" + noteContent;
         ByteArrayInputStream bais = new ByteArrayInputStream(dropboxContent.getBytes());
        	Entry entry = mApi.putFileOverwrite(path, bais, dropboxContent.getBytes().length, null);
-       	updateNoteModificationTimeAndFileName(noteUri, RESTUtility.parseDate(entry.modified).getTime(), entry.fileName());
+       	updateNoteModificationTimeAndFilePath(noteUri, entry);
 	}
 
-	private void updateNoteModificationTimeAndFileName(Uri noteUri, long time, String fileName) {
+	private void updateNoteModificationTimeAndFilePath(Uri noteUri, Entry entry) throws DropboxException {//long time, String fileName) {
+		long time = RESTUtility.parseDate(entry.modified).getTime();
+		String fileName = entry.fileName();
+		String folder = entry.parentPath();
 		ContentValues values = new ContentValues();
 		values.put(NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE, time);
 		values.put(NotePad.Notes.COLUMN_NAME_FILE_NAME, fileName);
+		values.put(NotePad.Notes.COLUMN_NAME_FOLDER, folder);
 		mActivity.getContentResolver().update(noteUri, values, null, null);
 	}
 

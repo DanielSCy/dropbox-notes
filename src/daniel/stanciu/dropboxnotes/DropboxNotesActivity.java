@@ -23,6 +23,7 @@ import com.dropbox.client2.session.AccessTokenPair;
 import com.dropbox.client2.session.AppKeyPair;
 import com.dropbox.client2.session.TokenPair;
 
+import android.app.Dialog;
 import android.app.ListActivity;
 import android.content.ClipboardManager;
 import android.content.ClipData;
@@ -44,7 +45,10 @@ import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ContextMenu.ContextMenuInfo;
+import android.view.View.OnClickListener;
 import android.widget.AdapterView;
+import android.widget.Button;
+import android.widget.EditText;
 import android.widget.ListView;
 import android.widget.SimpleCursorAdapter;
 import android.widget.Toast;
@@ -65,6 +69,7 @@ public class DropboxNotesActivity extends ListActivity {
 	final static private String ACCOUNT_PREFS_NAME = "dropboxprefs";
 	final static private String ACCESS_KEY_NAME = "ACCESS_KEY";
 	final static private String ACCESS_SECRET_NAME = "ACCESS_SECRET";
+	final static private String CURRENT_FOLDER_NAME = "CURRENT_FOLDER";
 
 	DropboxAPI<AndroidAuthSession> mApi;
 	private boolean mLoggedIn;
@@ -72,6 +77,7 @@ public class DropboxNotesActivity extends ListActivity {
 	MenuItem dropboxSyncItem;
 	// private boolean syncedOnStart = false;
 	private boolean mAlreadyLinked = false;
+	private Uri mCurrentUri = null;
 
 	// For logging and debugging
 	private static final String TAG = "DropboxNotes";
@@ -91,6 +97,11 @@ public class DropboxNotesActivity extends ListActivity {
 			NotePad.Notes.COLUMN_NAME_TITLE,
 			NotePad.Notes.COLUMN_NAME_NOTE
 	};
+	
+	private static final String[] FOLDERS_PROJECTION = new String[] {
+		"1 as _id",
+		NotePad.Notes.COLUMN_NAME_FOLDER
+	};
 
 	// private static final String[] NOTE_DETAILS_PROJECTION = new String[] {
 	// NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE,
@@ -100,6 +111,11 @@ public class DropboxNotesActivity extends ListActivity {
 	/** The index of the title column */
 	private static final int COLUMN_INDEX_TITLE = 1;
 	public static final boolean IS_DEBUGGING = false;
+	private static final int DYNAMIC_FOLDERS = 56;
+	private static final int MOVE_TO_DIALOG_ID = 1;
+	
+	private String currentFolder = "";
+	private String savedFolder = "";
 
 	/**
 	 * onCreate is called when Android starts this Activity from scratch.
@@ -107,6 +123,16 @@ public class DropboxNotesActivity extends ListActivity {
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
+
+		SharedPreferences prefs = getSharedPreferences(ACCOUNT_PREFS_NAME, 0);
+		savedFolder = currentFolder = prefs.getString(CURRENT_FOLDER_NAME, "");
+		if (currentFolder.isEmpty()) {
+			setTitle(R.string.menu_all_notes);
+		} else if (currentFolder.equals("/")) {
+			setTitle(R.string.menu_root_folder);
+		} else {
+			setTitle(currentFolder.substring(1, currentFolder.length() - 1));
+		}
 
 		// The user does not need to hold down the key to use menu shortcuts.
 		setDefaultKeyMode(DEFAULT_KEYS_SHORTCUT);
@@ -141,18 +167,7 @@ public class DropboxNotesActivity extends ListActivity {
 		 * Please see the introductory note about performing provider operations
 		 * on the UI thread.
 		 */
-		@SuppressWarnings("deprecation")
-		Cursor cursor = managedQuery(getIntent().getData(), // Use the default
-															// content URI for
-															// the provider.
-				PROJECTION, // Return the note ID and title for each note.
-				" " + NotePad.Notes.COLUMN_NAME_DELETED + " = 0 ", // Only notes
-																	// which are
-																	// not
-																	// deleted.
-				null, // No where clause, therefore no where column values.
-				NotePad.Notes.DEFAULT_SORT_ORDER // Use the default sort order.
-		);
+		Cursor cursor = getCurrentCursor();
 
 		/*
 		 * The following two arrays create a "map" between columns in the cursor
@@ -196,6 +211,44 @@ public class DropboxNotesActivity extends ListActivity {
 
 	}
 
+	@SuppressWarnings("deprecation")
+	private Cursor getCurrentCursor() {
+		Cursor cursor = null;
+		if (currentFolder.isEmpty()) {
+			cursor = managedQuery(getIntent().getData(), // Use the
+																// default
+					// content URI for
+					// the provider.
+					PROJECTION, // Return the note ID and title for each note.
+					" " + NotePad.Notes.COLUMN_NAME_DELETED + " = 0 ", // Only
+																		// notes
+					// which are
+					// not
+					// deleted.
+					null, // No where clause, therefore no where column values.
+					NotePad.Notes.DEFAULT_SORT_ORDER // Use the default sort
+														// order.
+			);
+		} else {
+			Uri uri = NotePad.Notes.FOLDER_NAME_URI_BASE;
+			cursor = managedQuery(Uri.withAppendedPath(uri, Uri.encode(currentFolder)),
+					PROJECTION,
+					" " + NotePad.Notes.COLUMN_NAME_DELETED + " = 0 ",
+					null,
+					NotePad.Notes.DEFAULT_SORT_ORDER);
+		}
+		return cursor;
+	}
+	
+	@SuppressWarnings("deprecation")
+	private void replaceAdapter(String folderPath) {
+		SimpleCursorAdapter adapter = (SimpleCursorAdapter)getListAdapter();
+		Cursor oldCursor = adapter.getCursor();
+		stopManagingCursor(oldCursor); // because it will be closed when changing cursor
+		currentFolder = folderPath;
+		adapter.changeCursor(getCurrentCursor());
+	}
+	
 	@Override
 	protected void onResume() {
 		super.onResume();
@@ -236,6 +289,17 @@ public class DropboxNotesActivity extends ListActivity {
 			// syncedOnStart = true;
 			// syncWithDropbox();
 			// }
+		}
+	}
+	
+	@Override
+	protected void onPause() {
+		super.onPause();
+		if (!savedFolder.equals(currentFolder)) {
+			SharedPreferences prefs = getSharedPreferences(ACCOUNT_PREFS_NAME, 0);
+			Editor editor = prefs.edit();
+			editor.putString(CURRENT_FOLDER_NAME, currentFolder);
+			editor.commit();
 		}
 	}
 
@@ -403,6 +467,10 @@ public class DropboxNotesActivity extends ListActivity {
 			dropboxAuthItem.setTitle(R.string.menu_signin);
 			dropboxSyncItem.setVisible(false);
 		}
+		
+		MenuItem folders = menu.findItem(R.id.menu_folders);
+		Menu foldersMenu = folders.getSubMenu();
+		populateFolders(foldersMenu);
 
 		// The paste menu item is enabled if there is data on the clipboard.
 		ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
@@ -490,6 +558,36 @@ public class DropboxNotesActivity extends ListActivity {
 		return true;
 	}
 
+	private void populateFolders(Menu foldersMenu) {
+		Cursor cursor = getContentResolver().query(NotePad.Notes.FOLDERS_URI,
+				FOLDERS_PROJECTION, null, null, NotePad.Notes.COLUMN_NAME_FOLDER + " ASC");
+		
+		if (cursor == null) {
+			showToast("Cannot get list of folders");
+		}
+		
+		int folderIndex = cursor.getColumnIndex(NotePad.Notes.COLUMN_NAME_FOLDER);
+		
+		foldersMenu.removeGroup(DYNAMIC_FOLDERS);
+		
+		while (cursor.moveToNext()) {
+			String folder = cursor.getString(folderIndex);
+			if (folder.equals("/")) {
+				continue;
+			}
+			if (folder.startsWith("/")) {
+				folder = folder.substring(1);
+			}
+			if (folder.endsWith("/")) {
+				folder = folder.substring(0, folder.length() - 1);
+			}
+			//MenuItem mi = foldersMenu.add(folder);
+			foldersMenu.add(DYNAMIC_FOLDERS, Menu.NONE, Menu.NONE, folder);
+		}
+		
+		cursor.close();
+	}
+
 	/**
 	 * This method is called when the user selects an option from the menu, but
 	 * no item in the list is selected. If the option was INSERT, then a new
@@ -516,8 +614,15 @@ public class DropboxNotesActivity extends ListActivity {
 			 * set, so DEFAULT is assumed. In effect, this starts the NoteEditor
 			 * Activity in NotePad.
 			 */
-			startActivity(new Intent(Intent.ACTION_INSERT, getIntent()
-					.getData()));
+			Intent intent = new Intent(Intent.ACTION_INSERT, getIntent().getData());
+			String targetFolder;
+			if (currentFolder.equals("/") || currentFolder.isEmpty()) {
+				targetFolder = "/";
+			} else {
+				targetFolder = currentFolder;
+			}
+			intent.putExtra(NotePad.Notes.COLUMN_NAME_FOLDER, targetFolder);
+			startActivity(intent);
 			return true;
 		case R.id.menu_paste:
 			/*
@@ -540,8 +645,21 @@ public class DropboxNotesActivity extends ListActivity {
 			if (mLoggedIn) {
 				syncWithDropbox();
 			}
+			return true;
+		case R.id.menu_all_notes:
+			replaceAdapter("");
+			setTitle(R.string.menu_all_notes);
+			return true;
+		case R.id.menu_root_folder:
+			replaceAdapter("/");
+			setTitle(R.string.menu_root_folder);
+			return true;
 		default:
-			return super.onOptionsItemSelected(item);
+			// TODO: check if it is the name of a folder then replace cursor with the folder one, else return super...
+			replaceAdapter("/" + (String) item.getTitle() + "/");
+			setTitle(item.getTitle());
+			return true;
+			//return super.onOptionsItemSelected(item);
 		}
 	}
 
@@ -704,13 +822,166 @@ public class DropboxNotesActivity extends ListActivity {
 		case R.id.context_generate_qr:
 			generateQRCode(noteUri);
 			return true;
+		case R.id.context_move_to:
+			// TODO
+			moveToOtherFolder(noteUri);
 		default:
 			return super.onContextItemSelected(item);
 		}
 	}
 
+	@SuppressWarnings("deprecation")
+	private void moveToOtherFolder(Uri noteUri) {
+		mCurrentUri = noteUri;
+		showDialog(MOVE_TO_DIALOG_ID);
+	}
+
+	
+
+	@Override
+	protected void onPrepareDialog(int id, Dialog dialog) {
+		// TODO Auto-generated method stub
+		switch (id) {
+		case MOVE_TO_DIALOG_ID:
+			ListView foldersList = (ListView)dialog.findViewById(R.id.existingFoldersList);
+			// TODO: fill folders list
+			Cursor cursor = getContentResolver().query(NotePad.Notes.FOLDERS_URI,
+					FOLDERS_PROJECTION, null, null, NotePad.Notes.COLUMN_NAME_FOLDER + " ASC");
+			
+			if (cursor == null) {
+				showToast("Cannot get list of folders");
+			}
+			
+			String[] dataColumns = { NotePad.Notes.COLUMN_NAME_FOLDER };
+
+			// The view IDs that will display the cursor columns, initialized to the
+			// TextView in
+			// noteslist_item.xml
+			int[] viewIDs = { android.R.id.text1 };
+
+			// Creates the backing adapter for the ListView.
+			@SuppressWarnings("deprecation")
+			SimpleCursorAdapter adapter = new SimpleCursorAdapter(this, // The
+																		// Context
+																		// for the
+																		// ListView
+					R.layout.noteslist_item, // Points to the XML for a list item
+					cursor, // The cursor to get items from
+					dataColumns, viewIDs);
+
+			foldersList.setAdapter(adapter);
+			foldersList.setOnItemClickListener(new AdapterView.OnItemClickListener () {
+				@Override
+				public void onItemClick(AdapterView<?> list, View view, int position, long id) {
+					Cursor cursor = (Cursor)list.getItemAtPosition(position);
+					int colIndex = cursor.getColumnIndex(NotePad.Notes.COLUMN_NAME_FOLDER);
+					String selectedFolder = cursor.getString(colIndex);
+					EditText et = (EditText)((View)list.getParent()).findViewById(R.id.new_folder_text);
+					et.setText(selectedFolder);
+				}
+			});
+			break;
+		default:
+			super.onPrepareDialog(id, dialog);
+		}
+	}
+
+	@SuppressWarnings("deprecation")
+	@Override
+	protected Dialog onCreateDialog(int id) {
+		if (id == MOVE_TO_DIALOG_ID) {
+			Dialog dialog = new Dialog(this);
+			dialog.setContentView(R.layout.choose_folder_dialog);
+			dialog.setTitle(R.string.move_to_title);
+			Button okButton = (Button)dialog.findViewById(R.id.okButton);
+			Button cancelButton = (Button)dialog.findViewById(R.id.cancelButton);
+			
+			cancelButton.setTag(dialog);
+			okButton.setTag(dialog);
+			
+			cancelButton.setOnClickListener(new View.OnClickListener() {
+				@Override
+				public void onClick(View v) {
+					Dialog dialog = (Dialog)v.getTag();
+					ListView foldersList = (ListView)dialog.findViewById(R.id.existingFoldersList);
+					((SimpleCursorAdapter)foldersList.getAdapter()).getCursor().close();
+					dialog.dismiss();
+				}
+			});
+			
+			okButton.setOnClickListener(new View.OnClickListener() {
+				@Override
+				public void onClick(View v) {
+					// TODO Auto-generated method stub
+					Dialog dialog = (Dialog)v.getTag();
+					EditText newFolder = (EditText)dialog.findViewById(R.id.new_folder_text);
+					ListView foldersList = (ListView)dialog.findViewById(R.id.existingFoldersList);
+					SimpleCursorAdapter adapter = (SimpleCursorAdapter)foldersList.getAdapter();
+					String targetFolder = null;
+					if (newFolder.getText().length() > 0) {
+						targetFolder = newFolder.getText().toString();
+						if (!targetFolder.startsWith("/")) {
+							targetFolder = "/" + targetFolder;
+						}
+						if (!targetFolder.endsWith("/")) {
+							targetFolder += "/";
+						}
+//					} else {
+//						// TODO get current selection from list
+//						Cursor cursor = (Cursor)foldersList.getSelectedItem();
+//						if (cursor != null) {
+//							targetFolder = adapter.convertToString(cursor).toString();
+//						}
+					}
+					adapter.getCursor().close();
+					if (targetFolder != null) {
+						moveToFolder(targetFolder);
+					}
+					dialog.dismiss();
+				}
+
+			});
+			
+			return dialog;
+		}
+
+		return super.onCreateDialog(id);
+	}
+
+	private void moveToFolder(String targetFolder) {
+		// TODO Auto-generated method stub
+		// get old note details
+		Cursor cursor = getContentResolver().query(mCurrentUri, SHARE_PROJECTION, null, null, null);
+		if (cursor == null) {
+			showToast("Cannot get cursor");
+			mCurrentUri = null;
+			return;
+		}
+		int titleIndex = cursor.getColumnIndex(NotePad.Notes.COLUMN_NAME_TITLE);
+		int noteIndex = cursor.getColumnIndex(NotePad.Notes.COLUMN_NAME_NOTE);
+		if (cursor.moveToFirst()) {
+			String title = cursor.getString(titleIndex);
+			String note = cursor.getString(noteIndex);
+			cursor.close();
+			// create new note based on the old one
+			ContentValues values = new ContentValues();
+			values.put(NotePad.Notes.COLUMN_NAME_TITLE, title);
+			values.put(NotePad.Notes.COLUMN_NAME_NOTE, note);
+			values.put(NotePad.Notes.COLUMN_NAME_FOLDER, targetFolder);
+			Uri newNoteUri = getContentResolver().insert(NotePad.Notes.CONTENT_URI, values);
+			if (newNoteUri == null) {
+				showToast("Cannot create new note");
+			} else {
+				// mark old note as deleted
+				values = new ContentValues();
+				values.put(NotePad.Notes.COLUMN_NAME_DELETED, 1);
+				getContentResolver().update(mCurrentUri, values, null, null);
+			}
+		}
+		mCurrentUri = null;
+	}
+	
 	private void generateQRCode(Uri noteUri) {
-		// TODO: create an intent to generate the QR code for the contents
 		// of the selected note
 //		Intent shareIntent = new Intent();
 //		shareIntent.setAction(Intent.ACTION_SEND);

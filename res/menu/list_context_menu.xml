@@ -8,4 +8,6 @@
           android:title="@string/menu_delete" />
     <item android:id="@+id/context_generate_qr"
           android:title="@string/generate_qr" />
+    <item android:id="@+id/context_move_to"
+          android:title="@string/menu_move_to"/>
 </menu>

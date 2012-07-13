@@ -18,4 +18,13 @@
           android:alphabeticShortcut='p' />
     <item android:id="@+id/menu_dropbox_auth"
           android:title="@string/menu_signin" />
+    <item android:id="@+id/menu_folders"
+          android:title="@string/menu_folders" >
+          <menu>
+              <item android:id="@+id/menu_all_notes"
+                    android:title="@string/menu_all_notes"/>
+              <item android:id="@+id/menu_root_folder"
+                    android:title="@string/menu_root_folder"/>
+          </menu>
+    </item>
 </menu>

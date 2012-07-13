@@ -209,6 +209,11 @@ public class NoteEditor extends Activity {
                 finish();
                 return;
             }
+            
+            updateFolder(intent.getStringExtra(NotePad.Notes.COLUMN_NAME_FOLDER));
+
+            
+            // update the folder
 
             // Since the new entry was created, this sets the result to be returned
             // set the result to be returned.
@@ -265,7 +270,18 @@ public class NoteEditor extends Activity {
         }
     }
 
-    /**
+    private void updateFolder(String folder) {
+    	ContentValues values = new ContentValues();
+    	values.put(NotePad.Notes.COLUMN_NAME_FOLDER, folder);
+        getContentResolver().update(
+                mUri,    // The URI for the record to update.
+                values,  // The map of column names and new values to apply to them.
+                null,    // No selection criteria are used, so no where columns are necessary.
+                null     // No where columns are used, so no where arguments are necessary.
+            );
+	}
+
+	/**
      * This method is called when the Activity is about to come to the foreground. This happens
      * when the Activity comes to the top of the task stack, OR when it is first starting.
      *
@@ -491,18 +507,17 @@ public class NoteEditor extends Activity {
 
 
     private void scanQRCode() {
-		// TODO Auto-generated method stub
 		Intent intent = new Intent("com.google.zxing.client.android.SCAN");
 		intent.addCategory(Intent.CATEGORY_DEFAULT);
-		intent.putExtra("SCAN_FORMATS", "QR_CODE");
-		startActivityForResult(Intent.createChooser(intent, getResources().getText(R.string.choose_qr_app)),
-				SCAN_QR_CODE);
+		//intent.putExtra("SCAN_FORMATS", "QR_CODE");
+		//startActivityForResult(Intent.createChooser(intent, getResources().getText(R.string.choose_qr_app)),
+		//		SCAN_QR_CODE);
+		startActivityForResult(intent, SCAN_QR_CODE);
 	}
 
     
 	@Override
 	protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-		// TODO Auto-generated method stub
 		if (requestCode == SCAN_QR_CODE) {
 			if (resultCode == Activity.RESULT_OK) {
 				mScanResult = data.getStringExtra("SCAN_RESULT");

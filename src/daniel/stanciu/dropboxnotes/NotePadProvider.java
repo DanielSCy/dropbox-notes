@@ -177,10 +177,13 @@ public class NotePadProvider extends ContentProvider implements
 		// Maps "folder" to "folder"
 		sNotesProjectionMap.put(NotePad.Notes.COLUMN_NAME_FOLDER,
 				NotePad.Notes.COLUMN_NAME_FOLDER);
-
+		
 		// Creates a new projection map instance. The map returns a column name
 		// given a string. The two are usually equal.
 		sFoldersProjectionMap = new HashMap<String, String>();
+
+		// Maps the string "_ID" to the column name "_ID"
+		sFoldersProjectionMap.put(NotePad.Notes._ID, NotePad.Notes._ID);
 
 		// Maps "folder" to "folder"
 		sFoldersProjectionMap.put(NotePad.Notes.COLUMN_NAME_FOLDER,
@@ -217,8 +220,7 @@ public class NotePadProvider extends ContentProvider implements
 					+ NotePad.Notes.COLUMN_NAME_DELETED
 					+ " INTEGER NOT NULL DEFAULT 0,"
 					+ NotePad.Notes.COLUMN_NAME_FILE_NAME + " TEXT,"
-					+ NotePad.Notes.COLUMN_NAME_FOLDER
-					+ " TEXT NOT NULL DEFAULT '/'" + ");");
+					+ NotePad.Notes.COLUMN_NAME_FOLDER + " TEXT NOT NULL DEFAULT '/');");
 		}
 
 		/**
@@ -235,8 +237,7 @@ public class NotePadProvider extends ContentProvider implements
 				db.execSQL("ALTER TABLE " + NotePad.Notes.TABLE_NAME
 						+ " ADD COLUMN " + NotePad.Notes.COLUMN_NAME_DELETED
 						+ " INTEGER NOT NULL DEFAULT 0;");
-			}
-			if (oldVersion == 4 && newVersion == 5) {
+			} else if (oldVersion == 4 && newVersion == 5) {
 				db.execSQL("ALTER TABLE " + NotePad.Notes.TABLE_NAME
 						+ " ADD COLUMN " + NotePad.Notes.COLUMN_NAME_FOLDER
 						+ " TEXT NOT NULL DEFAULT '/';");

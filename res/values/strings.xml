@@ -45,4 +45,11 @@
     <string name="generate_qr">Generate QR code</string>
     <string name="choose_qr_app">Choose QR app</string>
     <string name="menu_scan_qr">Scan QR code</string>
+    <string name="menu_folders">Folder</string>
+    <string name="menu_all_notes">All Notes</string>
+    <string name="menu_root_folder">No folder</string>
+    <string name="menu_move_to">Move to</string>
+    <string name="button_cancel">Cancel</string>
+    <string name="move_to_title">Move to</string>
+    <string name="new_folder_hint">New folder name</string>
 </resources>
