@@ -16,6 +16,8 @@
 
 package daniel.stanciu.dropboxnotes;
 
+import java.util.ArrayList;
+
 import com.dropbox.client2.DropboxAPI;
 import com.dropbox.client2.android.AndroidAuthSession;
 import com.dropbox.client2.android.AuthActivity;
@@ -39,13 +41,13 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
 import android.util.Log;
+import android.util.SparseBooleanArray;
 import android.view.ContextMenu;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ContextMenu.ContextMenuInfo;
-import android.view.View.OnClickListener;
 import android.widget.AdapterView;
 import android.widget.Button;
 import android.widget.EditText;
@@ -70,14 +72,6 @@ public class DropboxNotesActivity extends ListActivity {
 	final static private String ACCESS_KEY_NAME = "ACCESS_KEY";
 	final static private String ACCESS_SECRET_NAME = "ACCESS_SECRET";
 	final static private String CURRENT_FOLDER_NAME = "CURRENT_FOLDER";
-
-	DropboxAPI<AndroidAuthSession> mApi;
-	private boolean mLoggedIn;
-	MenuItem dropboxAuthItem;
-	MenuItem dropboxSyncItem;
-	// private boolean syncedOnStart = false;
-	private boolean mAlreadyLinked = false;
-	private Uri mCurrentUri = null;
 
 	// For logging and debugging
 	private static final String TAG = "DropboxNotes";
@@ -113,6 +107,17 @@ public class DropboxNotesActivity extends ListActivity {
 	public static final boolean IS_DEBUGGING = false;
 	private static final int DYNAMIC_FOLDERS = 56;
 	private static final int MOVE_TO_DIALOG_ID = 1;
+	private static final int CONFIRM_CLOUD_DELETE_DIALOG_ID = 2;
+
+	DropboxAPI<AndroidAuthSession> mApi;
+	private boolean mLoggedIn;
+	MenuItem dropboxAuthItem;
+	MenuItem dropboxSyncItem;
+	// private boolean syncedOnStart = false;
+	private boolean mAlreadyLinked = false;
+	private Uri mCurrentUri = null;
+	private ArrayList<ContentValues> cloudDeletedNotes = null;
+
 	
 	private String currentFolder = "";
 	private String savedFolder = "";
@@ -655,7 +660,6 @@ public class DropboxNotesActivity extends ListActivity {
 			setTitle(R.string.menu_root_folder);
 			return true;
 		default:
-			// TODO: check if it is the name of a folder then replace cursor with the folder one, else return super...
 			replaceAdapter("/" + (String) item.getTitle() + "/");
 			setTitle(item.getTitle());
 			return true;
@@ -823,7 +827,6 @@ public class DropboxNotesActivity extends ListActivity {
 			generateQRCode(noteUri);
 			return true;
 		case R.id.context_move_to:
-			// TODO
 			moveToOtherFolder(noteUri);
 		default:
 			return super.onContextItemSelected(item);
@@ -838,13 +841,12 @@ public class DropboxNotesActivity extends ListActivity {
 
 	
 
+	@SuppressWarnings("deprecation")
 	@Override
 	protected void onPrepareDialog(int id, Dialog dialog) {
-		// TODO Auto-generated method stub
 		switch (id) {
 		case MOVE_TO_DIALOG_ID:
 			ListView foldersList = (ListView)dialog.findViewById(R.id.existingFoldersList);
-			// TODO: fill folders list
 			Cursor cursor = getContentResolver().query(NotePad.Notes.FOLDERS_URI,
 					FOLDERS_PROJECTION, null, null, NotePad.Notes.COLUMN_NAME_FOLDER + " ASC");
 			
@@ -860,7 +862,6 @@ public class DropboxNotesActivity extends ListActivity {
 			int[] viewIDs = { android.R.id.text1 };
 
 			// Creates the backing adapter for the ListView.
-			@SuppressWarnings("deprecation")
 			SimpleCursorAdapter adapter = new SimpleCursorAdapter(this, // The
 																		// Context
 																		// for the
@@ -881,6 +882,13 @@ public class DropboxNotesActivity extends ListActivity {
 				}
 			});
 			break;
+		case CONFIRM_CLOUD_DELETE_DIALOG_ID:
+			if (cloudDeletedNotes != null && cloudDeletedNotes.size() > 0) {
+				ListView notesListView = (ListView)dialog.findViewById(R.id.deletedNotesList);
+				DeletedNotesArrayAdapter delNotesAdapter = new DeletedNotesArrayAdapter(this, cloudDeletedNotes);
+				notesListView.setAdapter(delNotesAdapter);
+			}
+			break;
 		default:
 			super.onPrepareDialog(id, dialog);
 		}
@@ -889,7 +897,9 @@ public class DropboxNotesActivity extends ListActivity {
 	@SuppressWarnings("deprecation")
 	@Override
 	protected Dialog onCreateDialog(int id) {
-		if (id == MOVE_TO_DIALOG_ID) {
+		switch (id) {
+		case MOVE_TO_DIALOG_ID:
+		{
 			Dialog dialog = new Dialog(this);
 			dialog.setContentView(R.layout.choose_folder_dialog);
 			dialog.setTitle(R.string.move_to_title);
@@ -912,7 +922,6 @@ public class DropboxNotesActivity extends ListActivity {
 			okButton.setOnClickListener(new View.OnClickListener() {
 				@Override
 				public void onClick(View v) {
-					// TODO Auto-generated method stub
 					Dialog dialog = (Dialog)v.getTag();
 					EditText newFolder = (EditText)dialog.findViewById(R.id.new_folder_text);
 					ListView foldersList = (ListView)dialog.findViewById(R.id.existingFoldersList);
@@ -926,12 +935,6 @@ public class DropboxNotesActivity extends ListActivity {
 						if (!targetFolder.endsWith("/")) {
 							targetFolder += "/";
 						}
-//					} else {
-//						// TODO get current selection from list
-//						Cursor cursor = (Cursor)foldersList.getSelectedItem();
-//						if (cursor != null) {
-//							targetFolder = adapter.convertToString(cursor).toString();
-//						}
 					}
 					adapter.getCursor().close();
 					if (targetFolder != null) {
@@ -944,12 +947,63 @@ public class DropboxNotesActivity extends ListActivity {
 			
 			return dialog;
 		}
+		case CONFIRM_CLOUD_DELETE_DIALOG_ID:
+		{
+			Dialog dialog = new Dialog(this);
+			dialog.setContentView(R.layout.confirm_cloud_delete_dialog);
+			dialog.setTitle(R.string.confirm_cloud_delete_title);
+			Button okButton = (Button)dialog.findViewById(R.id.okButton);
+			Button cancelButton = (Button)dialog.findViewById(R.id.cancelButton);
+			
+			cancelButton.setTag(dialog);
+			okButton.setTag(dialog);
+			
+			cancelButton.setOnClickListener(new View.OnClickListener() {
+				@Override
+				public void onClick(View v) {
+					Dialog dialog = (Dialog)v.getTag();
+					cloudDeletedNotes = null;
+					dialog.dismiss();
+				}
+			});
+			
+			okButton.setOnClickListener(new View.OnClickListener() {
+				@Override
+				public void onClick(View v) {
+					boolean requery = false;
+					Dialog dialog = (Dialog)v.getTag();
+					ListView deletedNotesList = (ListView)dialog.findViewById(R.id.deletedNotesList);
+					DeletedNotesArrayAdapter adapter = (DeletedNotesArrayAdapter)deletedNotesList.getAdapter();
+					SparseBooleanArray checkedPositions = deletedNotesList.getCheckedItemPositions();
+					for (int i = 0; i < adapter.getCount(); ++i) {
+						Uri uri = ContentUris.withAppendedId(DropboxNotesActivity.this.getIntent().getData(), adapter.getItemId(i));
+						if (checkedPositions.get(i)) {
+							DropboxNotesActivity.this.getContentResolver().delete(uri, null, null);
+							requery = true;
+						} else {
+							// delete the file name from DB in order to send it to cloud as a new note on next sync operation
+							ContentValues updateValues = new ContentValues();
+							updateValues.putNull(NotePad.Notes.COLUMN_NAME_FILE_NAME);
+							DropboxNotesActivity.this.getContentResolver().update(uri, updateValues, null, null);
+						}
+					}
+					cloudDeletedNotes = null;
+					if (requery) {
+						((SimpleCursorAdapter)DropboxNotesActivity.this.getListAdapter()).notifyDataSetChanged();
+					}
+					dialog.dismiss();
+				}
 
-		return super.onCreateDialog(id);
+			});
+			
+			return dialog;
+		}
+		default:
+			return super.onCreateDialog(id);
+		}
 	}
 
 	private void moveToFolder(String targetFolder) {
-		// TODO Auto-generated method stub
 		// get old note details
 		Cursor cursor = getContentResolver().query(mCurrentUri, SHARE_PROJECTION, null, null, null);
 		if (cursor == null) {
@@ -1037,6 +1091,14 @@ public class DropboxNotesActivity extends ListActivity {
 			// ACTION_EDIT. The
 			// Intent's data is the note ID URI. The effect is to call NoteEdit.
 			startActivity(new Intent(Intent.ACTION_EDIT, uri));
+		}
+	}
+
+	@SuppressWarnings("deprecation")
+	public void showCloudDeletedConfirmation(ArrayList<ContentValues> deletedInCloud) {
+		if (deletedInCloud != null && deletedInCloud.size() > 0) {
+			cloudDeletedNotes = deletedInCloud;
+			showDialog(CONFIRM_CLOUD_DELETE_DIALOG_ID);
 		}
 	}
 }

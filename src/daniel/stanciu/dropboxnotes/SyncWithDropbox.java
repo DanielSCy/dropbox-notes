@@ -40,6 +40,8 @@ public class SyncWithDropbox extends AsyncTask<Void, Integer, Boolean> {
     private boolean mCanceled = false;
     private String mErrorMsg;
     private ArrayList<String> localNotes = new ArrayList<String>();
+	private ArrayList<ContentValues> deletedInCloud = new ArrayList<ContentValues>();
+
 
     private static final String[] NOTE_DETAILS_PROJECTION = new String[] {
     	NotePad.Notes._ID,
@@ -110,20 +112,6 @@ public class SyncWithDropbox extends AsyncTask<Void, Integer, Boolean> {
 		
 		try {
 			processDirectory("/", remoteFiles);
-//			Entry dir = null;
-//			dir = mApi.metadata("/", 0, null, true, null);
-//			for (Entry file : dir.contents) {
-//				if (file.isDeleted) {
-//					continue;
-//				}
-//				if (file.isDir) {
-//					// TODO: process directories
-//					continue;
-//				}
-//				Log.d(TAG, "Found file " + file.path);
-//				String fileName = file.fileName();
-//				remoteFiles.put(fileName, file);
-//			}
 		} catch (DropboxUnlinkedException e) {
             Log.e(TAG, mErrorMsg, e);
 			mErrorMsg = "Please link with dropbox.";
@@ -215,10 +203,12 @@ public class SyncWithDropbox extends AsyncTask<Void, Integer, Boolean> {
 							continue;
 						}
 					} else {
-						// TODO: the remote file was deleted, delete local note
-						// for now, only show a Toast for it to make sure there are no bugs
-						// TODO: make it less stealth
-						Log.w(TAG, "Cannot find file " + filePath + ". Please check");
+						ContentValues noteValues = new ContentValues();
+						noteValues.put(DeletedNotesArrayAdapter.ID_KEY, noteId);
+						noteValues.put(DeletedNotesArrayAdapter.TITLE_KEY, title);
+						noteValues.put(DeletedNotesArrayAdapter.FOLDER_KEY, folder);
+						noteValues.put(DeletedNotesArrayAdapter.FILE_NAME_KEY, fileName);
+						deletedInCloud.add(noteValues);
 					}
 				} else {
 					insertDropboxNote(uri, noteId, title, noteContent, remoteFiles, folder);
@@ -299,7 +289,7 @@ public class SyncWithDropbox extends AsyncTask<Void, Integer, Boolean> {
 	            break;
 	        }
 			pos++;
-			publishProgress(new Integer((int)(100.0*(double)pos/count + 0.5)));
+			publishProgress(Integer.valueOf((int)(100.0*(double)pos/count + 0.5)));
 		}
 		listCursor.close();
 		
@@ -448,15 +438,15 @@ public class SyncWithDropbox extends AsyncTask<Void, Integer, Boolean> {
     protected void onPostExecute(Boolean result) {
         mDialog.dismiss();
         if (result) {
-            // Set the image now that we have it
-//            mView.setImageDrawable(mDrawable);
+        	// process notes that were deleted in the cloud: ask for confirmation to delete them locally
+        	mActivity.showCloudDeletedConfirmation(deletedInCloud);
         } else {
             // Couldn't download it, so show an error
             showToast(mErrorMsg);
         }
     }
 
-    private void showToast(String msg) {
+	private void showToast(String msg) {
         Toast error = Toast.makeText(mActivity, msg, Toast.LENGTH_LONG);
         error.show();
     }

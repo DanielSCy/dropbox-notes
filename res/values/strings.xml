@@ -52,4 +52,6 @@
     <string name="button_cancel">Cancel</string>
     <string name="move_to_title">Move to</string>
     <string name="new_folder_hint">New folder name</string>
+    <string name="confirm_cloud_delete_message">These notes were deleted in the cloud. Select the ones to delete locally.</string>
+    <string name="confirm_cloud_delete_title">Notes deleted in the cloud</string>
 </resources>
