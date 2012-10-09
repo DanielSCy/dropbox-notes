@@ -135,7 +135,7 @@ public class SyncWithDropbox extends AsyncTask<Void, Integer, Boolean> {
 		
 		// update Dropbox based on local notes
 		Cursor listCursor = mActivity.getContentResolver().query(
-				mActivity.getIntent().getData(), NOTE_DETAILS_PROJECTION, null, null, null);
+				mActivity.getIntent().getData(), NOTE_DETAILS_PROJECTION, null, null, NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE + " ASC");
 		
 		if (listCursor == null) {
 			mErrorMsg = "Could not get cursor";
